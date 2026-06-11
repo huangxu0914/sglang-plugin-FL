@@ -45,7 +45,11 @@ IMAGE_DIR = Path(os.environ.get("IMAGE_DIR", _HERE / "test_images"))
 # page_size=1 is required on MUSA to work around a sglang platform bug.
 # Ascend NPU requires its own attention backend and extra runtime settings.
 if _is_musa:
-    _extra_engine_kwargs: dict = {"page_size": 1, "trust_remote_code": True}
+    _extra_engine_kwargs: dict = {
+        "page_size": 1,
+        "trust_remote_code": True,
+        "disable_piecewise_cuda_graph": True,
+    }
 elif _is_npu:
     _extra_engine_kwargs = {
         "attention_backend": "ascend",
@@ -53,9 +57,13 @@ elif _is_npu:
         "dtype": "bfloat16",
         "trust_remote_code": True,
         "disable_radix_cache": True,
+        "disable_piecewise_cuda_graph": True,
     }
 else:
-    _extra_engine_kwargs = {"trust_remote_code": True}
+    _extra_engine_kwargs = {
+        "trust_remote_code": True,
+        "disable_piecewise_cuda_graph": True,
+    }
 
 TEXT_PROMPTS = [
     "How many states are there in the United States?",
@@ -151,8 +159,6 @@ def run_engine():
         model_path=MODEL_PATH,
         tp_size=TP_SIZE,
         mem_fraction_static=0.85,
-        disable_cuda_graph=True,
-        disable_piecewise_cuda_graph=True,
         **_extra_engine_kwargs,
     )
 

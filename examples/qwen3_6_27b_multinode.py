@@ -6,6 +6,9 @@ Validates that sglang-plugin-FL correctly handles multi-node tensor parallelism
 for the dense Qwen3.6-27B model by launching a distributed SGLang server across
 2 nodes and running text, concurrent, and multimodal (VL) inference tests.
 
+Supports CUDA, MUSA, and Ascend NPU; platform-specific server flags and env
+vars are applied automatically at runtime based on the detected torch backend.
+
 ============================================================================
 Usage:
   This script runs as EITHER master (node_rank=0) or worker (node_rank=1),
@@ -23,14 +26,14 @@ Full tested command (2 nodes × 2 GPUs each, TP=2 PP=2):
 
   [Node 0 / Master / 192.168.0.66]
     CUDA_VISIBLE_DEVICES=0,1 \
-    SGLANG_FL_FLAGOS_BLACKLIST=count_nonzero,index_put_,_index_put_impl,_index_put_impl_ \
+    SGLANG_FL_FLAGOS_BLACKLIST=count_nonzero \
     SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK=0 \
     GLOO_SOCKET_IFNAME=eth0 NCCL_SOCKET_IFNAME=eth0 \
         python examples/qwen3_6_27b_multinode.py --role master --master-addr 192.168.0.66 --tp 2 --pp 2
 
   [Node 1 / Worker / 192.168.0.65]
     CUDA_VISIBLE_DEVICES=0,1 \
-    SGLANG_FL_FLAGOS_BLACKLIST=count_nonzero,index_put_,_index_put_impl,_index_put_impl_ \
+    SGLANG_FL_FLAGOS_BLACKLIST=count_nonzero \
     SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK=0 \
     GLOO_SOCKET_IFNAME=eth0 NCCL_SOCKET_IFNAME=eth0 \
         python examples/qwen3_6_27b_multinode.py --role worker --master-addr 192.168.0.66 --tp 2 --pp 2
@@ -39,13 +42,20 @@ Full tested command (2 nodes × 2 GPUs each, TP=2 PP=2):
 
 Environment variables:
   MODEL_PATH       Model path (default: /models/Qwen3.6-27B)
-  CUDA_VISIBLE_DEVICES  GPU selection (e.g. 0,1)
+  CUDA_VISIBLE_DEVICES / MUSA_VISIBLE_DEVICES / NPU_VISIBLE_DEVICES  Device selection
   GLOO_SOCKET_IFNAME    Network interface for Gloo (default: eth0)
-  NCCL_SOCKET_IFNAME    Network interface for NCCL (default: eth0)
-  NCCL_IB_DISABLE       Set to 1 to disable InfiniBand
-  NCCL_NET              Set to "Socket" to force TCP transport
+  NCCL_SOCKET_IFNAME / MCCL_SOCKET_IFNAME / HCCL_SOCKET_IFNAME       Per-platform NIC
+  NCCL_IB_DISABLE       Set to 1 to disable InfiniBand (NVIDIA)
+  NCCL_NET              Set to "Socket" to force TCP transport (NVIDIA)
   SGLANG_FL_FLAGOS_BLACKLIST         Ops to exclude from FlagGems
   SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK  Set to 0 to skip memory check
+  Ascend NPU only — auto-set if not present:
+    SGLANG_ENABLE_OVERLAP_PLAN_STREAM=1, SGLANG_ENABLE_SPEC_V2=1,
+    SGLANG_NPU_USE_MULTI_STREAM=1, HCCL_BUFFSIZE=2400,
+    HCCL_OP_EXPANSION_MODE=AIV, STREAMS_PER_DEVICE=32,
+    SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK=128
+  MUSA only — auto-set if not present:
+    MCCL_TIMEOUT=14400
 
 Supported TP sizes: 1, 2, 3, 4, 6, 8, 12, 24 (num_attention_heads=24)
   IMPORTANT: TP=16 is NOT supported for this model (24 % 16 != 0).
@@ -66,6 +76,25 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+
+import torch
+
+# ─── Platform detection ─────────────────────────────────────────────────────
+
+_is_musa = hasattr(torch, "musa") and torch.musa.is_available()
+_is_npu = hasattr(torch, "npu") and torch.npu.is_available()
+
+# Must be set before sglang import in the subprocess (inherited via os.environ).
+if _is_npu:
+    os.environ.setdefault("SGLANG_ENABLE_OVERLAP_PLAN_STREAM", "1")  # 1 for multi-node
+    os.environ.setdefault("SGLANG_ENABLE_SPEC_V2", "1")
+    os.environ.setdefault("SGLANG_NPU_USE_MULTI_STREAM", "1")
+    os.environ.setdefault("HCCL_BUFFSIZE", "2400")
+    os.environ.setdefault("HCCL_OP_EXPANSION_MODE", "AIV")
+    os.environ.setdefault("STREAMS_PER_DEVICE", "32")
+    os.environ.setdefault("SGLANG_DEEPEP_NUM_MAX_DISPATCH_TOKENS_PER_RANK", "128")
+elif _is_musa:
+    os.environ.setdefault("MCCL_TIMEOUT", "14400")
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -314,6 +343,31 @@ def run_tests(port: int, tp_size: int, nnodes: int) -> bool:
     return t.summary(tp_size, nnodes)
 
 
+# ─── Platform-specific server flags ──────────────────────────────────────────
+
+
+def _platform_extra_cli() -> list:
+    """Platform-specific flags appended to `sglang.launch_server` cmd."""
+    if _is_npu:
+        return [
+            "--attention-backend", "ascend",
+            "--device", "npu",
+            "--dtype", "bfloat16",
+            "--disable-radix-cache",
+        ]
+    if _is_musa:
+        return ["--page-size", "1"]
+    return []
+
+
+def _platform_label() -> str:
+    if _is_npu:
+        return "ascend"
+    if _is_musa:
+        return "musa"
+    return "nvidia"
+
+
 # ─── Master logic ────────────────────────────────────────────────────────────
 
 
@@ -334,11 +388,12 @@ def run_master(args):
 
     print("=" * 56)
     print("  sglang-plugin-FL Multi-Node Verification")
-    print(f"  Role:   MASTER (node_rank={node_rank})")
-    print(f"  Model:  {MODEL_PATH}")
-    print(f"  TP:     {args.tp}    PP: {args.pp}    Nodes: {args.nnodes}")
-    print(f"  Master: {args.master_addr}  dist={args.dist_port}  nccl={args.nccl_port}")
-    print(f"  API:    http://localhost:{args.port}")
+    print(f"  Role:     MASTER (node_rank={node_rank})")
+    print(f"  Platform: {_platform_label()}")
+    print(f"  Model:    {MODEL_PATH}")
+    print(f"  TP:       {args.tp}    PP: {args.pp}    Nodes: {args.nnodes}")
+    print(f"  Master:   {args.master_addr}  dist={args.dist_port}  nccl={args.nccl_port}")
+    print(f"  API:      http://localhost:{args.port}")
     print("=" * 56)
 
     cmd = [
@@ -367,6 +422,7 @@ def run_master(args):
         "--disable-piecewise-cuda-graph",
         "--trust-remote-code",
     ]
+    cmd.extend(_platform_extra_cli())
 
     print("Launching server...")
     server_proc = subprocess.Popen(cmd)
@@ -410,10 +466,11 @@ def run_worker(args):
 
     print("=" * 56)
     print("  sglang-plugin-FL Multi-Node Verification")
-    print(f"  Role:   WORKER (node_rank={node_rank})")
-    print(f"  Model:  {MODEL_PATH}")
-    print(f"  TP:     {args.tp}    PP: {args.pp}    Nodes: {args.nnodes}")
-    print(f"  Master: {args.master_addr}  dist={args.dist_port}  nccl={args.nccl_port}")
+    print(f"  Role:     WORKER (node_rank={node_rank})")
+    print(f"  Platform: {_platform_label()}")
+    print(f"  Model:    {MODEL_PATH}")
+    print(f"  TP:       {args.tp}    PP: {args.pp}    Nodes: {args.nnodes}")
+    print(f"  Master:   {args.master_addr}  dist={args.dist_port}  nccl={args.nccl_port}")
     print("=" * 56)
 
     # Connectivity check
@@ -451,6 +508,7 @@ def run_worker(args):
         "--disable-piecewise-cuda-graph",
         "--trust-remote-code",
     ]
+    cmd.extend(_platform_extra_cli())
 
     print("Starting worker node... (will block until master shuts down)\n")
     try:
@@ -472,9 +530,14 @@ if __name__ == "__main__":
         print("Set MODEL_PATH environment variable to the correct path.")
         sys.exit(1)
 
-    # Ensure network interfaces are set
+    # Ensure network interfaces are set (sh launcher may already set them).
     os.environ.setdefault("GLOO_SOCKET_IFNAME", "eth0")
-    os.environ.setdefault("NCCL_SOCKET_IFNAME", "eth0")
+    if _is_npu:
+        os.environ.setdefault("HCCL_SOCKET_IFNAME", "eth0")
+    elif _is_musa:
+        os.environ.setdefault("MCCL_SOCKET_IFNAME", "eth0")
+    else:
+        os.environ.setdefault("NCCL_SOCKET_IFNAME", "eth0")
 
     if args.role == "master":
         run_master(args)

@@ -23,14 +23,14 @@ Full tested command (2 nodes × 2 GPUs each, TP=2 PP=2):
 
   [Node 0 / Master / 192.168.0.66]
     CUDA_VISIBLE_DEVICES=0,1 \
-    SGLANG_FL_FLAGOS_BLACKLIST=count_nonzero,index_put_,_index_put_impl,_index_put_impl_ \
+    SGLANG_FL_FLAGOS_BLACKLIST=count_nonzero \
     SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK=0 \
     GLOO_SOCKET_IFNAME=eth0 NCCL_SOCKET_IFNAME=eth0 \
         python examples/qwen3_6_35b_a3b_multinode.py --role master --master-addr 192.168.0.66 --tp 2 --pp 2
 
   [Node 1 / Worker / 192.168.0.65]
     CUDA_VISIBLE_DEVICES=0,1 \
-    SGLANG_FL_FLAGOS_BLACKLIST=count_nonzero,index_put_,_index_put_impl,_index_put_impl_ \
+    SGLANG_FL_FLAGOS_BLACKLIST=count_nonzero\
     SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK=0 \
     GLOO_SOCKET_IFNAME=eth0 NCCL_SOCKET_IFNAME=eth0 \
         python examples/qwen3_6_35b_a3b_multinode.py --role worker --master-addr 192.168.0.66 --tp 2 --pp 2
