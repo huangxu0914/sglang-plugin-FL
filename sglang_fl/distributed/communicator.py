@@ -35,6 +35,7 @@ class CommunicatorFL:
         world_size: int,
         rank_in_group: int,
         ranks: List[int],
+        pynccl_comm: Optional[object] = None,
     ):
         self.cpu_group = cpu_group
         self.device = device
@@ -42,6 +43,7 @@ class CommunicatorFL:
         self.world_size = world_size
         self.rank_in_group = rank_in_group
         self.ranks = ranks
+        self._pynccl_comm = pynccl_comm
 
         # Determine backend
         from sglang_fl.platform import PlatformFL
@@ -89,7 +91,9 @@ class CommunicatorFL:
                 # FlagCX all_reduce returns a new tensor; copy back for in-place semantics
                 input_.copy_(out)
                 return input_
-        # Fallback: torch.distributed
+        if self._pynccl_comm is not None and not self._pynccl_comm.disabled:
+            self._pynccl_comm.all_reduce(input_)
+            return input_
         dist.all_reduce(input_, group=self.device_group)
         return input_
 
@@ -99,6 +103,9 @@ class CommunicatorFL:
         """Reduce-scatter tensor (in-place into output)."""
         if self._flagcx_comm and not self._flagcx_comm.disabled:
             self._flagcx_comm.reduce_scatter(output, input_)
+            return
+        if self._pynccl_comm is not None and not self._pynccl_comm.disabled:
+            self._pynccl_comm.reduce_scatter(output, input_)
             return
         dist.reduce_scatter_tensor(output, input_, group=self.device_group)
 
@@ -134,6 +141,10 @@ class CommunicatorFL:
                 self._flagcx_comm.reduce_scatter(output, input_)
             return output
 
+        if self._pynccl_comm is not None and not self._pynccl_comm.disabled:
+            self._pynccl_comm.reduce_scatter(output, input_, sizes=sizes)
+            return output
+
         # Fallback: torch.distributed (only supports equal sizes)
         dist.reduce_scatter_tensor(output, input_, group=self.device_group)
         return output
@@ -144,6 +155,9 @@ class CommunicatorFL:
         """All-gather into tensor (in-place into output)."""
         if self._flagcx_comm and not self._flagcx_comm.disabled:
             self._flagcx_comm.all_gather(output, input_)
+            return
+        if self._pynccl_comm is not None and not self._pynccl_comm.disabled:
+            self._pynccl_comm.all_gather(output, input_)
             return
         dist.all_gather_into_tensor(output, input_, group=self.device_group)
 
@@ -176,6 +190,8 @@ class CommunicatorFL:
                     self._flagcx_comm.all_gatherv(output_tensor, inp, sizes=sizes)
                 else:
                     self._flagcx_comm.all_gather(output_tensor, inp)
+            elif self._pynccl_comm is not None and not self._pynccl_comm.disabled:
+                self._pynccl_comm.all_gather(output_tensor, inp, sizes=sizes)
             else:
                 dist.all_gather_into_tensor(output_tensor, inp, group=self.device_group)
 
@@ -208,6 +224,9 @@ class CommunicatorFL:
         if self._flagcx_comm and not self._flagcx_comm.disabled:
             self._flagcx_comm.send(tensor, dst)
             return
+        if self._pynccl_comm is not None and not self._pynccl_comm.disabled:
+            self._pynccl_comm.send(tensor, dst)
+            return
         dist.send(tensor, self.ranks[dst], self.device_group)
 
     # ─── recv ────────────────────────────────────────────────────────────────
@@ -216,5 +235,8 @@ class CommunicatorFL:
         """Receive tensor from source rank (rank_in_group)."""
         if self._flagcx_comm and not self._flagcx_comm.disabled:
             self._flagcx_comm.recv(tensor, src)
+            return
+        if self._pynccl_comm is not None and not self._pynccl_comm.disabled:
+            self._pynccl_comm.recv(tensor, src)
             return
         dist.recv(tensor, self.ranks[src], self.device_group)

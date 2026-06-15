@@ -452,6 +452,7 @@ def _setup_communicator_hooks():
                     world_size=self.world_size,
                     rank_in_group=self.rank_in_group,
                     ranks=self.ranks,
+                    pynccl_comm=getattr(self, "pynccl_comm", None),
                 )
             except Exception as e:
                 logger.warning(f"CommunicatorFL creation failed: {e}")
