@@ -124,6 +124,30 @@ class AscendBackend(Backend):
 
         return fused_moe_ascend(obj, layer, dispatch_output)
 
+    def indexer(
+        self,
+        obj,
+        x: torch.Tensor,
+        q_lora: torch.Tensor,
+        positions: torch.Tensor,
+        forward_batch,
+        layer_id: int,
+        layer_scatter_modes=None,
+        dynamic_scale: Optional[torch.Tensor] = None,
+    ) -> Optional[torch.Tensor]:
+        from .impl.indexer import indexer_ascend
+
+        return indexer_ascend(
+            obj,
+            x,
+            q_lora,
+            positions,
+            forward_batch,
+            layer_id,
+            layer_scatter_modes=layer_scatter_modes,
+            dynamic_scale=dynamic_scale,
+        )
+
     def chunk_gated_delta_rule(
         self,
         q,

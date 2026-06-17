@@ -255,6 +255,7 @@ def _make_dispatch_hook(config: dict = None):
     from sglang.srt.layers.rotary_embedding.mrope import MRotaryEmbedding
     from sglang.srt.layers.moe.topk import TopK
     from sglang.srt.layers.quantization.unquant import UnquantizedFusedMoEMethod
+    from sglang.srt.layers.attention.nsa.nsa_indexer import Indexer
     from sglang_fl.dispatch.bridge import (
         silu_and_mul_bridge,
         rms_norm_bridge,
@@ -263,6 +264,7 @@ def _make_dispatch_hook(config: dict = None):
         mrotary_embedding_bridge,
         topk_bridge,
         fused_moe_bridge,
+        indexer_bridge,
     )
 
     if config is None:
@@ -294,6 +296,7 @@ def _make_dispatch_hook(config: dict = None):
         MRotaryEmbedding: mrotary_embedding_bridge,
         TopK: topk_bridge,
         UnquantizedFusedMoEMethod: fused_moe_bridge,
+        Indexer: indexer_bridge,
     }
 
     def _find_bridge(cls):

@@ -19,6 +19,7 @@ from sglang_fl.dispatch.bridge.fla_fused_recurrent import (
 from sglang_fl.dispatch.bridge.fla_packed_decode import (
     fused_recurrent_gated_delta_rule_packed_decode_bridge,
 )
+from sglang_fl.dispatch.bridge.indexer import indexer_bridge
 
 __all__ = [
     "silu_and_mul_bridge",
@@ -31,4 +32,5 @@ __all__ = [
     "chunk_gated_delta_rule_bridge",
     "fused_recurrent_gated_delta_rule_bridge",
     "fused_recurrent_gated_delta_rule_packed_decode_bridge",
+    "indexer_bridge",
 ]

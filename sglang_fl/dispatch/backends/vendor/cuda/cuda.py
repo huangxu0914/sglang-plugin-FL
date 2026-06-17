@@ -131,6 +131,28 @@ class CudaBackend(Backend):
 
         return mrotary_embedding_cuda(obj, positions, query, key)
 
+    def indexer(
+        self,
+        obj,
+        x: torch.Tensor,
+        q_lora: torch.Tensor,
+        positions: torch.Tensor,
+        forward_batch,
+        layer_id: int,
+        return_indices: bool = True,
+    ) -> Optional[torch.Tensor]:
+        from .impl.indexer import indexer_cuda
+
+        return indexer_cuda(
+            obj,
+            x,
+            q_lora,
+            positions,
+            forward_batch,
+            layer_id,
+            return_indices=return_indices,
+        )
+
     def chunk_gated_delta_rule(
         self,
         q,

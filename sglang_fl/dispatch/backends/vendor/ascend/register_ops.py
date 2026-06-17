@@ -90,6 +90,14 @@ def register_builtins(registry) -> None:
             vendor="ascend",
             priority=BackendPriority.VENDOR,
         ),
+        OpImpl(
+            op_name="indexer",
+            impl_id="vendor.ascend",
+            kind=BackendImplKind.VENDOR,
+            fn=_bind_is_available(backend.indexer, is_avail),
+            vendor="ascend",
+            priority=BackendPriority.VENDOR,
+        ),
     ]
 
     registry.register_many(impls)
