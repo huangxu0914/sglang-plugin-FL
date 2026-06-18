@@ -750,12 +750,12 @@ def _setup_communicator_hooks():
         _broadcast_tensor_dict_hook,
         HookType.AROUND,
     )
-    HookRegistry.register(
-        f"{_GC_TARGET}.send_tensor_dict", _send_tensor_dict_hook, HookType.AROUND
-    )
-    HookRegistry.register(
-        f"{_GC_TARGET}.recv_tensor_dict", _recv_tensor_dict_hook, HookType.AROUND
-    )
+    # HookRegistry.register(
+    #     f"{_GC_TARGET}.send_tensor_dict", _send_tensor_dict_hook, HookType.AROUND
+    # )
+    # HookRegistry.register(
+    #     f"{_GC_TARGET}.recv_tensor_dict", _recv_tensor_dict_hook, HookType.AROUND
+    # )
 
     logger.info(
         "CommunicatorFL AROUND hooks registered on GroupCoordinator "
