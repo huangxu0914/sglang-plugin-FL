@@ -18,10 +18,15 @@ from __future__ import annotations
 
 import torch
 
+from .flaggems_sglang import get_op
+
 
 def silu_and_mul_flagos(obj, x: torch.Tensor) -> torch.Tensor:
     """
-    SiLU activation followed by element-wise multiplication using FlagGems.
+    SiLU activation followed by element-wise multiplication.
+
+    Uses the FlagGems-sglang kernel where it is declared ready for the current
+    vendor, otherwise FlagGems.
 
     Args:
         obj: The calling nn.Module (unused, for interface consistency)
@@ -30,6 +35,10 @@ def silu_and_mul_flagos(obj, x: torch.Tensor) -> torch.Tensor:
     Returns:
         Output tensor of shape [..., d]
     """
+    silu_and_mul = get_op("silu_and_mul")
+    if silu_and_mul is not None:
+        return silu_and_mul(x)
+
     from flag_gems.modules.activation import gems_silu_and_mul
 
     d = x.shape[-1] // 2

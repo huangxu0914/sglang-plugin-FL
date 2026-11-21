@@ -63,6 +63,10 @@ class FlagOSBackend(Backend):
             and not self.is_fused_recurrent_available()
         ):
             return False
+        if op_name == "gemma_rms_norm":
+            from .impl.gemma_rms_norm import is_gemma_rms_norm_available
+
+            return is_gemma_rms_norm_available()
         # These are newly introduced defaults for CoreX. Keep existing CUDA,
         # MUSA and other vendors on their current implementations until their
         # FlagGems fused-kernel contracts have been validated independently.
@@ -95,6 +99,11 @@ class FlagOSBackend(Backend):
         from .impl.normalization import rms_norm_flagos
 
         return rms_norm_flagos(obj, x, residual)
+
+    def gemma_rms_norm(self, obj, x, residual=None):
+        from .impl.gemma_rms_norm import gemma_rms_norm_flagos
+
+        return gemma_rms_norm_flagos(obj, x, residual)
 
     def rotary_embedding(
         self,
